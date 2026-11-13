@@ -1,0 +1,121 @@
+# -----------------------------------------------------------------------------
+# AI Document Intelligence - configuration
+# Every value can be overridden by an environment variable (relaxed binding),
+# e.g. app.ai.chat.provider -> APP_AI_CHAT_PROVIDER. See README "Configuration".
+# -----------------------------------------------------------------------------
+spring:
+  application:
+    name: ai-document-intelligence
+  autoconfigure:
+    # API-key auth only: no generated in-memory user / password
+    exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
+  threads:
+    virtual:
+      enabled: true
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/docintel}
+    username: ${DB_USERNAME:docintel}
+    password: ${DB_PASSWORD:docintel}
+    hikari:
+      maximum-pool-size: 10
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none          # Flyway owns the schema
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    placeholders:
+      embedding_dimension: ${app.ai.embedding.dimension}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+
+  servlet:
+    multipart:
+      max-file-size: ${MAX_UPLOAD_SIZE:20MB}
+      max-request-size: ${MAX_UPLOAD_SIZE:20MB}
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    redis:
+      # Redis is optional at runtime (cache + rate limiting degrade), so its outage
+      # must not turn /actuator/health into 503.
+      enabled: false
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+app:
+  security:
+    api-key-header: X-API-Key
+    # Each entry is one client/tenant. Documents are isolated per 'name'.
+    # Blank keys are ignored, so unset env vars simply disable that client.
+    api-keys:
+      - name: ${APP_API_KEY_NAME:default}
+        key: ${APP_API_KEY:}
+    rate-limit:
+      enabled: true
+      requests-per-minute: ${RATE_LIMIT_RPM:60}
+
+  ai:
+    chat:
+      provider: ${CHAT_PROVIDER:openai}          # openai | anthropic | ollama
+      model: ${CHAT_MODEL:gpt-4.1-mini}
+      api-key: ${CHAT_API_KEY:${OPENAI_API_KEY:}}
+      base-url: ${CHAT_BASE_URL:}                # required for ollama, e.g. http://localhost:11434
+      temperature: 0.1
+      max-tokens: 1024
+      timeout: 60s
+    embedding:
+      provider: ${EMBEDDING_PROVIDER:openai}     # openai | ollama
+      model: ${EMBEDDING_MODEL:text-embedding-3-small}
+      api-key: ${EMBEDDING_API_KEY:${OPENAI_API_KEY:}}
+      base-url: ${EMBEDDING_BASE_URL:}
+      dimension: ${EMBEDDING_DIMENSION:1536}     # MUST match the model; fixed at first DB migration
+      timeout: 60s
+
+  ingestion:
+    chunk-size: 1000          # characters per chunk
+    chunk-overlap: 150        # characters shared between neighbouring chunks
+    embed-batch-size: 64
+    concurrency: 2            # parallel ingestion jobs
+    queue-capacity: 100       # queued jobs before uploads get 503
+
+  rag:
+    default-top-k: 5
+    max-top-k: 20
+    min-score: 0.3            # cosine similarity floor; below it the LLM is not called
+
+  cache:
+    enabled: true
+    answer-ttl: 1h
+    embedding-ttl: 24h
+
+logging:
+  level:
+    com.ai.documentintelligence: INFO
